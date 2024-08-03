@@ -1,0 +1,7 @@
+[package]
+name = "mystery-static-builder"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+markdown-extensions={path="../markdown-extensions"}

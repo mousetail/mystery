@@ -1,0 +1,7 @@
+[package]
+name = "markdown-extensions"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+markdown-it = "0.6.1"

@@ -1,0 +1,10 @@
+[lib]
+crate-type=["lib"]
+
+[package]
+name = "test-mystery-game-third-attempt"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+xml = "0.8.20"
