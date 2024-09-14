@@ -163,18 +163,18 @@
           {{# each nav}}
             <div class="nav-column">
               {{# each ./items }}
-                <div class="nav-row
+                <a class="nav-row
                   menu-item-folder
                   {{# if ./selected}}
                     selected
                   {{/if}}
                 "
-                
+                  href="{{ ./path/web_path }}"
                 >
                   <div class="nav-row-content">
-                  {{ ./name }}
+                    {{ ./path/display_name }}
                   </div>
-                </div>
+                </a>
               {{/each}}
             </div>
           {{/each}}

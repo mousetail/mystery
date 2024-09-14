@@ -1,15 +1,20 @@
 use std::{
     ffi::OsStr,
     fs::{read_dir, DirEntry, OpenOptions},
-    io::{Error, Read, Write},
-    path::PathBuf,
+    io::{Error, Read},
+    path::{Path, PathBuf},
 };
 
 use nav::generate_nav_bar;
+use serde::Serialize;
 use template_args::TemplateArgs;
 
 mod nav;
 mod template_args;
+
+const WEB_ROOT: &'static str = "/";
+const SOURCE_ROOT: &'static str = "mysteries";
+const DESINATION_ROOT: &'static str = "frontend-build";
 
 fn os_str_starts_with(string: &OsStr, prefix: &str) -> bool {
     string.as_encoded_bytes().get(..prefix.len()) == Some(prefix.as_bytes())
@@ -38,38 +43,18 @@ fn recursively_search(directory: PathBuf) -> impl Iterator<Item = PathBuf> {
         .flatten()
 }
 
-fn recursive_read_nav<'a>(
-    nav: &'a Vec<NavItem>,
-    root: PathBuf,
-) -> Box<dyn Iterator<Item = NavPage<'a>> + 'a> {
-    return Box::new(nav.iter().flat_map(move |k| {
-        let mut value = root.clone();
-        value.push(&k.name);
-        match &k.kind {
-            NavItemKind::Page(page) => Box::new(
-                Some(NavPage {
-                    name: &k.name,
-                    path: value,
-                    markdown_location: &page.markdown_location,
-                })
-                .into_iter(),
-            ),
-            NavItemKind::Folder(vec) => recursive_read_nav(vec, value),
-        }
-    }));
+fn read_nav<'a>(nav: &'a Vec<NavItem>) -> Box<dyn Iterator<Item = &'a NavContext> + 'a> {
+    fn _inner<'a>(nav: &'a Vec<NavItem>) -> Box<dyn Iterator<Item = &'a NavContext> + 'a> {
+        return Box::new(nav.iter().flat_map(move |k| match &k.kind {
+            NavItemKind::Page(_page) => Box::new(Some(&k.path).into_iter()),
+            NavItemKind::Folder(vec) => _inner(vec),
+        }));
+    }
+    _inner(nav)
 }
 
 #[derive(Debug)]
-struct Page {
-    markdown_location: PathBuf,
-}
-
-#[derive(Debug)]
-struct NavPage<'a> {
-    name: &'a str,
-    path: PathBuf,
-    markdown_location: &'a PathBuf,
-}
+struct Page {}
 
 #[derive(Debug)]
 enum NavItemKind {
@@ -79,29 +64,77 @@ enum NavItemKind {
 
 #[derive(Debug)]
 struct NavItem {
-    name: String,
     kind: NavItemKind,
+    path: NavContext,
 }
 
-fn get_or_insert<'a>(list: &'a mut Vec<NavItem>, name: &String) -> &'a mut Vec<NavItem> {
-    if !list.iter().any(|k| &k.name == name) {
+#[derive(Debug, Serialize, Clone)]
+struct NavContext {
+    source_path: PathBuf,
+    destination_path: PathBuf,
+    web_path: PathBuf,
+
+    display_name: String,
+}
+
+impl NavContext {
+    fn get_ancestors<'a>(
+        path: &'a [String],
+        mut input_root: PathBuf,
+        mut output_root: PathBuf,
+        mut web_root: PathBuf,
+    ) -> impl Iterator<Item = NavContext> + 'a {
+        return path.iter().map(move |k| {
+            input_root.push(k);
+            output_root.push(k);
+
+            web_root.push(k);
+
+            if output_root.extension().is_some() {
+                output_root.set_extension("html");
+                web_root.set_extension("html");
+            }
+
+            NavContext {
+                source_path: input_root.clone(),
+                destination_path: output_root.clone(),
+                web_path: web_root.clone(),
+                display_name: k.to_owned(),
+            }
+        });
+    }
+}
+
+fn get_or_insert<'a>(
+    list: &'a mut Vec<NavItem>,
+    value: NavContext,
+    kind: NavItemKind,
+) -> Option<&'a mut Vec<NavItem>> {
+    if !list
+        .iter()
+        .any(|k| k.path.display_name == value.display_name)
+    {
         list.push(NavItem {
-            name: name.to_owned(),
-            kind: NavItemKind::Folder(vec![]),
+            kind: kind,
+            path: value.clone(),
         });
     }
 
     let new_nav_item = list
         .iter_mut()
-        .find(|child| child.name.as_str() == name)
+        .find(|child| child.path.display_name.as_str() == value.display_name.as_str())
         .unwrap();
     return match &mut new_nav_item.kind {
-        NavItemKind::Folder(k) => k,
-        NavItemKind::Page(_) => panic!("Expected category, got page at {name:?}"),
+        NavItemKind::Folder(k) => Some(k),
+        NavItemKind::Page(_) => None,
     };
 }
 
 fn main() {
+    let web_root = Path::new(WEB_ROOT);
+    let destination_root = Path::new(DESINATION_ROOT);
+    let source_root = Path::new(SOURCE_ROOT);
+
     let mut handlebars = handlebars::Handlebars::new();
 
     let base_template = PathBuf::from("mysteries/base.hbs");
@@ -109,27 +142,47 @@ fn main() {
         .register_template_file("base", base_template)
         .unwrap();
 
-    fn insert_page(root: &mut Vec<NavItem>, item: Page, path: Vec<String>) {
-        let mut node = root;
+    fn insert_page(
+        root: &mut Vec<NavItem>,
+        item: Page,
+        path: Vec<String>,
+        input_root: &Path,
+        output_root: &Path,
+        web_root: &Path,
+    ) {
+        let mut node = Some(root);
 
-        let [path @ .., page_name] = path.as_slice() else {
-            panic!("Expected non-empty path");
-        };
+        let values = (&path[..path.len() - 1])
+            .iter()
+            .map(|_| NavItemKind::Folder(vec![]))
+            .chain(Some(NavItemKind::Page(item)));
 
-        for folder in path {
-            node = get_or_insert(node, folder);
+        for (folder, kind) in NavContext::get_ancestors(
+            &path,
+            input_root.to_owned(),
+            output_root.to_owned(),
+            web_root.to_owned(),
+        )
+        .zip(values)
+        {
+            node = get_or_insert(node.unwrap(), folder, kind);
         }
-
-        node.push(NavItem {
-            name: page_name.clone(),
-            kind: NavItemKind::Page(item),
-        })
     }
 
-    for mystery_folder in read_dir("mysteries").unwrap().filter_map(|k| {
+    for mystery_folder in read_dir(source_root).unwrap().filter_map(|k| {
         let v = k.ok()?;
         v.metadata().ok()?.is_dir().then(|| v)
     }) {
+        let stripped_mystery_folder = mystery_folder
+            .path()
+            .strip_prefix(source_root)
+            .unwrap()
+            .to_owned();
+
+        let source_root = source_root.join(&stripped_mystery_folder);
+        let destination_root = destination_root.join(&stripped_mystery_folder);
+        let web_root = web_root.join(&stripped_mystery_folder);
+
         let mut nav_item_root = vec![];
 
         let template = mystery_folder.path().join("./template.hbs");
@@ -139,14 +192,17 @@ fn main() {
             .unwrap();
 
         for file in recursively_search(mystery_folder.path()) {
-            eprintln!("Discovered file {:?}", file);
+            eprintln!(
+                "Discovered file {:?} {source_root:?} {destination_root:?} {web_root:?}",
+                file
+            );
 
             if file.extension() != Some(OsStr::new("md")) {
                 continue;
             }
 
             let relative_path = file
-                .strip_prefix("mysteries")
+                .strip_prefix(&source_root)
                 .unwrap()
                 .components()
                 .map(|d| d.as_os_str().to_str().unwrap().to_owned())
@@ -154,29 +210,29 @@ fn main() {
 
             insert_page(
                 &mut nav_item_root,
-                Page {
-                    markdown_location: file,
-                },
+                Page {},
                 relative_path,
+                &source_root,
+                &destination_root,
+                &web_root,
             );
         }
 
-        for page in recursive_read_nav(&nav_item_root, PathBuf::from("frontend-build")) {
+        println!("{nav_item_root:#?}");
+
+        for page in read_nav(&nav_item_root) {
             eprintln!("Processing file {:?}", page);
 
             let mut text = String::new();
             OpenOptions::new()
                 .read(true)
                 .write(false)
-                .open(&page.markdown_location)
+                .open(&page.source_path)
                 .expect("Failed to open file")
                 .read_to_string(&mut text)
                 .expect("Failed to read file content");
 
-            let nav_bar = generate_nav_bar(&nav_item_root, &page);
-
-            let mut destination = page.path;
-            destination.set_extension("html");
+            let nav_bar = generate_nav_bar(&nav_item_root, &page, &web_root);
 
             let html = markdown_extensions::render_markdown(&text);
 
@@ -184,13 +240,13 @@ fn main() {
                 .write(true)
                 .create(true)
                 .truncate(true)
-                .open(destination)
+                .open(&page.destination_path)
                 .unwrap();
 
             handlebars
                 .render_to_write(
                     &template_name,
-                    &TemplateArgs::new(&html, &page.name, &nav_bar),
+                    &TemplateArgs::new(&html, &page.display_name, &nav_bar),
                     output_file,
                 )
                 .unwrap();
