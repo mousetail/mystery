@@ -6,10 +6,12 @@ use std::{
 };
 
 use nav::generate_nav_bar;
+use path_context::NavContext;
 use serde::Serialize;
 use template_args::TemplateArgs;
 
 mod nav;
+mod path_context;
 mod template_args;
 
 const WEB_ROOT: &'static str = "/";
@@ -66,43 +68,6 @@ enum NavItemKind {
 struct NavItem {
     kind: NavItemKind,
     path: NavContext,
-}
-
-#[derive(Debug, Serialize, Clone)]
-struct NavContext {
-    source_path: PathBuf,
-    destination_path: PathBuf,
-    web_path: PathBuf,
-
-    display_name: String,
-}
-
-impl NavContext {
-    fn get_ancestors<'a>(
-        path: &'a [String],
-        mut input_root: PathBuf,
-        mut output_root: PathBuf,
-        mut web_root: PathBuf,
-    ) -> impl Iterator<Item = NavContext> + 'a {
-        return path.iter().map(move |k| {
-            input_root.push(k);
-            output_root.push(k);
-
-            web_root.push(k);
-
-            if output_root.extension().is_some() {
-                output_root.set_extension("html");
-                web_root.set_extension("html");
-            }
-
-            NavContext {
-                source_path: input_root.clone(),
-                destination_path: output_root.clone(),
-                web_path: web_root.clone(),
-                display_name: k.to_owned(),
-            }
-        });
-    }
 }
 
 fn get_or_insert<'a>(
@@ -227,7 +192,7 @@ fn main() {
             OpenOptions::new()
                 .read(true)
                 .write(false)
-                .open(&page.source_path)
+                .open(page.get_source_path())
                 .expect("Failed to open file")
                 .read_to_string(&mut text)
                 .expect("Failed to read file content");
@@ -240,7 +205,7 @@ fn main() {
                 .write(true)
                 .create(true)
                 .truncate(true)
-                .open(&page.destination_path)
+                .open(page.get_destination_path())
                 .unwrap();
 
             handlebars

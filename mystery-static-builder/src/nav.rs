@@ -34,7 +34,7 @@ pub fn generate_nav_bar(
     web_prefix: &Path,
 ) -> Vec<NavBar> {
     current_page
-        .web_path
+        .get_web_path()
         .parent()
         .unwrap()
         .join(&current_page.display_name)
