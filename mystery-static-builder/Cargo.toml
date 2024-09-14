@@ -6,3 +6,4 @@ edition = "2021"
 [dependencies]
 handlebars = "6.0.0"
 markdown-extensions={path="../markdown-extensions"}
+serde = { version = "1.0.210", features = ["derive"] }
