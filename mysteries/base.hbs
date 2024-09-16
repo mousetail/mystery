@@ -62,6 +62,11 @@
               display: flex;
             }
 
+            a.nav-row {
+              color: inherit;
+              text-decoration: none;
+            }
+
             .nav-row:hover {
               background-color: #223;
             }
@@ -152,6 +157,16 @@
               text-align: center;
             }
 
+            table {
+              table-layout: fixed;
+              width: 100%;
+              border-collapse: collapse;
+            }
+
+            tr:not(:last-child)>* {
+              border-bottom: 1px solid white;
+            }
+
             {{>styles}}
         </style>
 
@@ -169,10 +184,10 @@
                     selected
                   {{/if}}
                 "
-                  href="{{ ./path/web_path }}"
+                  href="{{ ./web_path }}"
                 >
                   <div class="nav-row-content">
-                    {{ ./path/display_name }}
+                    {{ ./display_name }}
                   </div>
                 </a>
               {{/each}}
@@ -180,7 +195,7 @@
           {{/each}}
         </nav>
 
-        <main>
+        <main class="evidence">
           {{{ html }}}
         </main>
       </div>

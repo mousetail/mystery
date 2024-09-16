@@ -1,26 +1,12 @@
-# Briefing
+Dear inspector,
 
-Test Test
+As you have probably seen on the news, it seems the LSS General Leyland Bordeux has found almost no neutronium on it's recent
+voyage to the Troyans before starting the return. This is suprising to us as scans show ample deposits on most of these asteroids.
 
-::: sms name:Dianna image:dianna_robinson
+The neutronium this mission would bring back would have been essential to replenish Earths energy reserves so this failure not only
+cost the investors an enormous amount of money but also dashes one of humanities last hopes.
 
-Who was the guy in the suit you where talking to in the end?
+On behalf of the Centeral European Asteroid Mining Corporation (C.E.A.M.C.), I would like to request your help in finding out how
+this mission could go so wrong.
 
-:::
-
-| table test | test |
-| ---------- | ---- |
-| greg       | piet |
-
-:::
-
-Try this?
-
-:::
-
-
-::: sms name:Rebecca image:rebecca_red me
-
-You did a fantastic job too!
-
-:::
+Oliver Wheatly, CEO C.E.A.M.C.

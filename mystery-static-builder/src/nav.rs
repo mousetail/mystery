@@ -13,40 +13,33 @@ pub struct NavBar {
 }
 
 #[derive(Serialize, Debug)]
-pub struct NavBarItem {
+struct NavBarItem {
     selected: bool,
-    path: NavContext,
+    web_path: PathBuf,
+    display_name: String,
 }
 
-fn generate_nav_frame(items: &[NavItem], root: &OsStr) -> Vec<NavBarItem> {
+fn generate_nav_frame(items: &[NavItem], root: &str) -> Vec<NavBarItem> {
     items
         .iter()
         .map(|item| NavBarItem {
-            selected: item.path.display_name.as_bytes() == root.as_encoded_bytes(),
-            path: item.path.clone(),
+            selected: item.path.get_display_name() == root,
+            web_path: item.path.get_web_path().to_owned(),
+            display_name: item.path.get_display_name().to_owned(),
         })
         .collect()
 }
 
-pub fn generate_nav_bar(
-    items: &[NavItem],
-    current_page: &NavContext,
-    web_prefix: &Path,
-) -> Vec<NavBar> {
+pub fn generate_nav_bar(items: &[NavItem], current_page: &NavContext) -> Vec<NavBar> {
     current_page
-        .get_web_path()
-        .parent()
-        .unwrap()
-        .join(&current_page.display_name)
-        .strip_prefix(web_prefix)
-        .unwrap()
+        .get_display_path()
         .iter()
         .scan(items, |items, frame| {
             let out = generate_nav_frame(items, frame);
 
             match &items
                 .iter()
-                .find(|k| k.path.display_name.as_bytes() == frame.as_encoded_bytes())
+                .find(|k| k.path.get_display_name() == frame)
                 .unwrap_or_else(|| panic!("Frame: {:?}", frame))
                 .kind
             {

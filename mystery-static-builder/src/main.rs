@@ -77,7 +77,7 @@ fn get_or_insert<'a>(
 ) -> Option<&'a mut Vec<NavItem>> {
     if !list
         .iter()
-        .any(|k| k.path.display_name == value.display_name)
+        .any(|k| k.path.get_display_name() == value.get_display_name())
     {
         list.push(NavItem {
             kind: kind,
@@ -87,7 +87,7 @@ fn get_or_insert<'a>(
 
     let new_nav_item = list
         .iter_mut()
-        .find(|child| child.path.display_name.as_str() == value.display_name.as_str())
+        .find(|child| child.path.get_display_name() == value.get_display_name())
         .unwrap();
     return match &mut new_nav_item.kind {
         NavItemKind::Folder(k) => Some(k),
@@ -127,6 +127,7 @@ fn main() {
             input_root.to_owned(),
             output_root.to_owned(),
             web_root.to_owned(),
+            vec![],
         )
         .zip(values)
         {
@@ -183,10 +184,12 @@ fn main() {
             );
         }
 
-        println!("{nav_item_root:#?}");
-
         for page in read_nav(&nav_item_root) {
-            eprintln!("Processing file {:?}", page);
+            eprintln!(
+                "Processing file {:?} {:?}",
+                page,
+                page.get_destination_path()
+            );
 
             let mut text = String::new();
             OpenOptions::new()
@@ -197,7 +200,7 @@ fn main() {
                 .read_to_string(&mut text)
                 .expect("Failed to read file content");
 
-            let nav_bar = generate_nav_bar(&nav_item_root, &page, &web_root);
+            let nav_bar = generate_nav_bar(&nav_item_root, &page);
 
             let html = markdown_extensions::render_markdown(&text);
 
@@ -211,7 +214,7 @@ fn main() {
             handlebars
                 .render_to_write(
                     &template_name,
-                    &TemplateArgs::new(&html, &page.display_name, &nav_bar),
+                    &TemplateArgs::new(&html, &page.get_display_name(), &nav_bar),
                     output_file,
                 )
                 .unwrap();
