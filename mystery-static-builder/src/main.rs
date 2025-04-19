@@ -1,11 +1,17 @@
+mod nav;
+
 use std::{
     collections::HashMap,
     ffi::OsStr,
-    fs::{read_dir, DirEntry, OpenOptions},
-    io::{Error, Read, Write},
+    fs::{DirEntry, OpenOptions, read_dir},
+    io::{Error, Read},
     os::unix::ffi::OsStrExt,
     path::PathBuf,
 };
+
+use nav::{NavItem, Page, get_or_insert};
+use serde::Serialize;
+use tera::Tera;
 
 fn os_str_starts_with(string: &OsStr, prefix: &str) -> bool {
     string.as_bytes().get(..prefix.len()) == Some(prefix.as_bytes())
@@ -34,51 +40,84 @@ fn recursively_search(directory: PathBuf) -> impl Iterator<Item = PathBuf> {
         .flatten()
 }
 
-struct Page {
-    markdown_location: PathBuf,
+struct RenderingContext<'a> {
+    tera: &'a Tera,
+    nav: NavItem,
+    template_name: &'a str,
 }
 
-enum NavItemKind {
-    Page(Page),
-    Folder(Vec<NavItem>),
+#[derive(Serialize)]
+struct RenderData<'a> {
+    nav: &'a NavItem,
+    html: &'a str,
+    name: &'a str,
+    parent: &'a str,
+    page: &'a [&'a str],
 }
 
-struct NavItem {
-    name: String,
-    kind: NavItemKind,
+fn process_ex(source_file: PathBuf, context: &RenderingContext) {
+    let mut text = String::new();
+
+    let dest_file = PathBuf::from("frontend-build")
+        .join(source_file.strip_prefix("mysteries").unwrap())
+        .with_extension("html");
+
+    println!("{source_file:?} {dest_file:?}");
+    OpenOptions::new()
+        .read(true)
+        .write(false)
+        .open(&source_file)
+        .expect("Failed to open file")
+        .read_to_string(&mut text)
+        .expect("Failed to read file content");
+
+    let html = markdown_extensions::render_markdown(&text);
+
+    let output_file = OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(dest_file)
+        .unwrap();
+
+    let tera_context = tera::Context::from_serialize(RenderData {
+        parent: "base",
+        html: &html,
+        nav: &context.nav,
+        name: &source_file.file_name().unwrap().to_str().unwrap(),
+        page: &["greg"],
+    })
+    .unwrap();
+
+    context
+        .tera
+        .render_to(&context.template_name, &tera_context, output_file)
+        .unwrap();
 }
 
-fn get_or_insert<'a>(list: &'a mut Vec<NavItem>, name: &String) -> &'a mut Vec<NavItem> {
-    if let Some(new_nav_item) = list.iter_mut().find(|child| child.name.as_str() == name)
-    {
-        return match &mut new_nav_item.kind {
-            NavItemKind::Folder(k) => k,
-            NavItemKind::Page(_) => panic!("Expected category, got page at {name:?}"),
+fn recursively_generate_pages(f: NavItem, context: &RenderingContext) {
+    match f.kind {
+        nav::NavItemKind::Page(page) => {
+            process_ex(page.markdown_location, context);
         }
-    }
+        nav::NavItemKind::Folder(hash_map) => {
+            for (_name, value) in hash_map {
+                // let mut source = source.clone();
+                // let mut destination = destination.clone();
+                // source.push(name.clone());
+                // destination.push(name);
 
-    let new_nav_item = NavItem {
-        name: name.to_owned(),
-        kind: NavItemKind::Folder(vec![]),
-    };
-    list.push(new_nav_item);
-    let new_nav_item = &mut list[list.len() - 1];
-
-    match &mut new_nav_item.kind {
-        NavItemKind::Folder(k) => return k,
-        NavItemKind::Page(p) => unreachable!("Expected category, got page at {name:?}"),
+                recursively_generate_pages(value, context);
+            }
+        }
     }
 }
 
 fn main() {
-    let mut handlebars = handlebars::Handlebars::new();
+    let mut tera = Tera::new("mysteries/**/*.html.jinja").unwrap();
+    tera.autoescape_on(vec![".html.jinja"]);
 
-    let base_template = PathBuf::from("mysteries/base.hbs");
-    handlebars
-        .register_template_file("base", base_template)
-        .unwrap();
-
-    fn insert_page(root: &mut Vec<NavItem>, item: Page, path: Vec<String>) {
+    fn insert_page(root: &mut NavItem, item: Page, path: Vec<String>) {
         let mut node = root;
 
         let [path @ .., page_name] = path.as_slice() else {
@@ -86,26 +125,37 @@ fn main() {
         };
 
         for folder in path {
-            let node = get_or_insert(node, folder);
+            node = get_or_insert(
+                node,
+                NavItem {
+                    name: folder.clone(),
+                    kind: nav::NavItemKind::Folder(HashMap::new()),
+                },
+            );
         }
 
-        node.push(NavItem {
-            name: page_name.clone(),
-            kind: NavItemKind::Page(item),
-        })
+        get_or_insert(
+            node,
+            NavItem {
+                kind: nav::NavItemKind::Page(item),
+                name: page_name.split_once('.').unwrap().0.to_string(),
+            },
+        );
     }
 
     for mystery_folder in read_dir("mysteries").unwrap().filter_map(|k| {
         let v = k.ok()?;
         v.metadata().ok()?.is_dir().then(|| v)
     }) {
-        let mut nav_item_root = vec![];
+        let mut nav_item_root = NavItem {
+            kind: nav::NavItemKind::Folder(HashMap::new()),
+            name: "root".to_string(),
+        };
 
-        let template = mystery_folder.path().join("./template.hbs");
-        let template_name = mystery_folder.file_name().to_str().unwrap().to_string();
-        handlebars
-            .register_template_file(&template_name, template)
-            .unwrap();
+        let template_name = format!(
+            "{}/template.html.jinja",
+            mystery_folder.file_name().to_str().unwrap()
+        );
 
         for file in recursively_search(mystery_folder.path()) {
             if file.extension() != Some(OsStr::new("md")) {
@@ -114,6 +164,7 @@ fn main() {
 
             let relative_path = file
                 .strip_prefix("mysteries")
+                .and_then(|e| e.strip_prefix(mystery_folder.file_name()))
                 .unwrap()
                 .components()
                 .map(|d| d.as_os_str().to_str().unwrap().to_owned())
@@ -128,38 +179,14 @@ fn main() {
             );
         }
 
-        // let mut text = String::new();
-        // OpenOptions::new()
-        //     .read(true)
-        //     .write(false)
-        //     .open(&file)
-        //     .expect("Failed to open file")
-        //     .read_to_string(&mut text)
-        //     .expect("Failed to read file content");
-
-        // let mut destination = PathBuf::from("frontend-build").join(relative_path);
-        // destination.set_extension("html");
-
-        // let html = markdown_extensions::render_markdown(&text);
-
-        // let output_file = OpenOptions::new()
-        //     .write(true)
-        //     .create(true)
-        //     .truncate(true)
-        //     .open(destination)
-        //     .unwrap();
-
-        // handlebars
-        //     .render_to_write(
-        //         &template_name,
-        //         &HashMap::from([
-        //             ("parent", "base"),
-        //             ("html", &html),
-        //             ("grey", "bob"),
-        //             ("name", file.file_name().unwrap().to_str().unwrap()),
-        //         ]),
-        //         output_file,
-        //     )
-        //     .unwrap();
+        recursively_generate_pages(
+            nav_item_root.clone(),
+            //mystery_folder.path().clone(),
+            &RenderingContext {
+                tera: &tera,
+                nav: nav_item_root,
+                template_name: &template_name,
+            },
+        );
     }
 }

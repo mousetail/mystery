@@ -1,0 +1,33 @@
+{% macro nav_inner(item, current_page, step)%}
+
+    {{ item | json_encode }}
+    
+    {% if item.kind=="folder"%}
+        <div class="menu">
+            {% for name, page in item.value %}
+                <div class="menu-item {% if page.kind=='folder' %}menu-item-folder{% else %}menu-item-evidence{% endif %}" href="{{ name }}">
+                    {{ name }}
+
+                    {% if name==current_page[step] %}
+                        {% set next_folder = page %}
+                    {% endif %}
+                </div>
+            {% endfor %}
+        </div>
+    {% elif item.kind=="page"%}
+        <div class="nav-item nav-item-page">
+            {{ item.name }}
+        </div>
+    {% endif%}
+
+    {% if next_folder %}
+        {{ self::nav_inner(item=next_folder, current_page=current_page, step=step+1) }}
+    {% endif %}
+{% endmacro%}
+
+{% macro nav(nav, current_page)%}
+    <div>
+        {{ self::nav_inner(item=nav, current_page=current_page, step=0)}}
+    </div>
+{% endmacro %}
+
